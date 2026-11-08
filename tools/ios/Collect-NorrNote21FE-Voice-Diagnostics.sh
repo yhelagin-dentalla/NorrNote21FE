@@ -61,6 +61,36 @@ print('Selected files:',len(chosen),'Sensitive-file skips:',len(skipped))
 if not any(any(s in item[0].lower() for s in ('audio','speech','voice')) and 'FEiOSRootView' not in item[0] for item in chosen):
     print('NOTE: audio coordinator source was not found as a separate file; inspect project layout.')
 PY
+# Optional read-only device build verification; raw device/app lists stay in TMP, never shared.
+if command -v xcrun >/dev/null 2>&1; then
+  TARGET_NAME="${NORRNOTE_DEVICE_NAME:-DarthVader_iPhone}"
+  if xcrun devicectl list devices --json-output "$TMP/devices.json" >/dev/null 2>&1; then
+    DEVICE="$(python3 - "$TMP/devices.json" "$TARGET_NAME" <<'PYDEVICE'
+import json,sys
+try:
+  devices=json.load(open(sys.argv[1],encoding='utf-8')).get('result',{}).get('devices',[])
+  hits=[d.get('identifier') for d in devices if (d.get('deviceProperties') or {}).get('name')==sys.argv[2] and d.get('identifier')]
+  print(hits[0] if len(hits)==1 else '')
+except Exception:print('')
+PYDEVICE
+)"
+    if [[ -n "$DEVICE" ]] && xcrun devicectl device info apps --device "$DEVICE" --json-output "$TMP/apps.json" >/dev/null 2>&1; then
+      python3 - "$TMP/apps.json" "$D/SUMMARY.json" <<'PYBUILD'
+import json,sys
+try:
+  apps=json.load(open(sys.argv[1],encoding='utf-8')).get('result',{}).get('apps',[])
+  found=[a for a in apps if a.get('bundleIdentifier')=='su.norrvind.norrnote.fe.ios']
+  data=json.load(open(sys.argv[2],encoding='utf-8'))
+  data['installed_build_on_target_iPhone'] = str(found[0].get('bundleVersion','unknown')) if len(found)==1 else 'app not found'
+  with open(sys.argv[2],'w',encoding='utf-8') as f:json.dump(data,f,ensure_ascii=False,indent=2)
+  print('Confirmed app build on iPhone:',data['installed_build_on_target_iPhone'])
+except Exception as e:print('NOTE: on-device version unavailable:',type(e).__name__)
+PYBUILD
+    else
+      echo 'NOTE: target iPhone not connected/unlocked; installed build cannot be confirmed.'
+    fi
+  fi
+fi
 STAMP="$(date '+%Y%m%d-%H%M%S')"
 ZIP="$OUTDIR/NorrNote21FE-Voice-Diagnostics-$STAMP.zip"
 (cd "$TMP" && zip -q -X -r "$ZIP" NorrNote21FE-Voice-Diagnostics)
