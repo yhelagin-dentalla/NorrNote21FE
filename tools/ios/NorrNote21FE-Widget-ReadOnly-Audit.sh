@@ -40,21 +40,25 @@ else
     tail -n 5 "$TEMP/device-error.txt" || true
     exit 3
   fi
-  DEVICE="$(python3 - "$TEMP/devices.json" <<'PY'
+  DEVICE="$(python3 - "$TEMP/devices.json" "${NORRNOTE_DEVICE_NAME:-}" <<'PY'
 import json,sys
 try:
  data=json.load(open(sys.argv[1])); devices=data.get('result',{}).get('devices',[])
+ desired=sys.argv[2].strip()
  matches=[]
  for d in devices:
   props=d.get('deviceProperties') or d.get('properties') or {}
   hw=d.get('hardwareProperties') or {}
-  label=' '.join(str(x) for x in (props.get('name'),hw.get('marketingName'),props.get('productType'),hw.get('productType'),hw.get('deviceType')) if x)
+  name=str(props.get('name') or '')
+  label=' '.join(str(x) for x in (name,hw.get('marketingName'),props.get('productType'),hw.get('productType'),hw.get('deviceType')) if x)
   identifier=d.get('identifier')
-  if identifier and 'iphone' in label.casefold():matches.append((identifier,label))
- print(matches[0][0] if len(matches)==1 else '')
- if len(matches)!=1:
-  print(f'DEVICE: {len(matches)} iPhone candidates. Set NORRNOTE_DEVICE to the exact device ID to select one.',file=sys.stderr)
-  for _,name in matches[:5]:print('  '+name,file=sys.stderr)
+  if identifier and 'iphone' in label.casefold():matches.append((identifier,label,name))
+ selected=[m for m in matches if m[2]==desired] if desired else matches
+ print(selected[0][0] if len(selected)==1 else '')
+ if len(selected)!=1:
+  if desired: print(f'DEVICE: Expected one iPhone named {desired!r}; found {len(selected)}. No device selected.',file=sys.stderr)
+  else: print(f'DEVICE: {len(matches)} iPhone candidates. Set NORRNOTE_DEVICE_NAME to the exact device name or NORRNOTE_DEVICE to its ID.',file=sys.stderr)
+  for _,label,_ in matches[:10]:print('  '+label,file=sys.stderr)
 except Exception as e:print('DEVICE: cannot parse device list:',e,file=sys.stderr)
 PY
 )"
